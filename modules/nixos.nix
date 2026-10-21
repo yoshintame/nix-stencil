@@ -28,7 +28,7 @@ let
     };
 in
 {
-  imports = [ ./common.nix ];
+  imports = [ ./common ];
 
   options.stencil = {
     namespaces = mkOption {

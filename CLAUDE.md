@@ -2,6 +2,7 @@
 
 Library flake: native config templates with secret holes rendered through sops-nix. Consumers: lasthaze-homelab (NixOS module) and dotfiles (home-manager module, not written yet).
 
-- `lib/` holds pure string functions; `modules/common.nix` is flavor-agnostic, `modules/nixos.nix` adds what only NixOS sops-nix has (`owner`, `group`, `restartUnits`).
+- `lib/holes.nix` is the hole grammar and rendering, `lib/sops.nix` the only part that knows the sops file format.
+- `modules/common/` is flavor-agnostic: `context.nix` resolves holes and lists the rendered files, `namespace.nix` and `file.nix` are the submodules, `checks.nix` the assertions and warnings. `modules/nixos.nix` adds what only NixOS sops-nix has (`owner`, `group`, `restartUnits`).
 - Every behavior change comes with a case in `tests/lib.nix` or `tests/nixos.nix`; `just check` must be green before a commit.
 - Releases are lightweight tags `vX.Y.Z`; consumers pin them through their flake.lock.
