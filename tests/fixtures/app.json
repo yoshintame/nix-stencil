@@ -1,0 +1,6 @@
+{
+  "root": "@root@",
+  "secret": "${SECRET}",
+  "token": "${peer.TOKEN}",
+  "literal": "$${KEEP}"
+}
