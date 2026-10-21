@@ -1,6 +1,8 @@
 { lib }:
 let
-  hole = "(\\$?)\\$\\{(([a-z0-9-]+)\\.)?([A-Z_][A-Z0-9_]*)}";
+  keyPattern = "[A-Z_][A-Z0-9_]*";
+  namespacePattern = "[a-z0-9-]+";
+  holePattern = "(\\$?)\\$\\{((${namespacePattern})\\.)?(${keyPattern})}";
 
   parse =
     text:
@@ -14,53 +16,78 @@ let
         }
       else
         part
-    ) (builtins.split hole text);
+    ) (builtins.split holePattern text);
 
-  literal = h: "\${${lib.optionalString (h.namespace != null) "${h.namespace}."}${h.key}}";
-in
-rec {
-  holesOf =
-    text:
-    lib.unique (
-      map (h: { inherit (h) namespace key; }) (lib.filter (h: lib.isAttrs h && !h.escaped) (parse text))
-    );
-
-  fillHoles =
-    { namespace, placeholderOf }:
-    text:
-    lib.concatMapStrings (
-      h:
-      if !lib.isAttrs h then
-        h
-      else if h.escaped then
-        literal h
-      else
-        placeholderOf (if h.namespace == null then namespace else h.namespace) h.key
-    ) (parse text);
+  holeRef =
+    hole: "\${${lib.optionalString (hole.namespace != null) "${hole.namespace}."}${hole.key}}";
 
   fillVars =
     vars: text:
     builtins.replaceStrings (map (name: "@${name}@") (lib.attrNames vars)) (lib.attrValues vars) text;
 
-  secretKeys =
+  topLevelEntry = builtins.match "([^[:space:]#:][^:]*):[[:space:]]+(.*)";
+in
+{
+  inherit holeRef;
+
+  patterns = {
+    key = keyPattern;
+    namespace = namespacePattern;
+  };
+
+  isNamespace = namespace: builtins.match namespacePattern namespace != null;
+
+  holesOf =
+    text:
+    lib.unique (
+      map (hole: { inherit (hole) namespace key; }) (
+        lib.filter (part: lib.isAttrs part && !part.escaped) (parse text)
+      )
+    );
+
+  render =
+    {
+      vars ? { },
+      placeholderOf,
+    }:
+    text:
+    lib.concatMapStrings (
+      part:
+      if !lib.isAttrs part then
+        fillVars vars part
+      else if part.escaped then
+        holeRef part
+      else
+        placeholderOf { inherit (part) namespace key; }
+    ) (parse text);
+
+  scanSopsFile =
     file:
-    lib.concatMap (
-      line:
-      let
-        m = builtins.match "([A-Z_][A-Z0-9_]*):[[:space:]]+ENC\\[.*" line;
-      in
-      lib.optional (m != null) (lib.head m)
-    ) (lib.splitString "\n" (builtins.readFile file));
+    let
+      entries = lib.concatMap (
+        line:
+        let
+          m = topLevelEntry line;
+        in
+        lib.optional (m != null && lib.hasPrefix "ENC[" (lib.elemAt m 1)) {
+          key = lib.head m;
+          value = lib.elemAt m 1;
+        }
+      ) (lib.splitString "\n" (builtins.readFile file));
+      reasonOf =
+        e:
+        if builtins.match keyPattern e.key == null then
+          "name outside ${keyPattern}"
+        else if !lib.hasInfix ",type:str]" e.value then
+          "not a string"
+        else
+          null;
+      classified = map (e: e // { reason = reasonOf e; }) entries;
+    in
+    {
+      keys = map (e: e.key) (lib.filter (e: e.reason == null) classified);
+      skipped = map (e: { inherit (e) key reason; }) (lib.filter (e: e.reason != null) classified);
+    };
 
   secretName = namespace: key: "${namespace}/${key}";
-
-  templateName = id: "stencil-${lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" id)}";
-
-  envTemplateName = namespace: "stencil-${namespace}.env";
-
-  envLines =
-    placeholderOf: namespace: keys:
-    lib.concatMapStrings (key: "${key}=${placeholderOf namespace key}\n") keys;
-
-  hasHoles = text: holesOf text != [ ];
 }

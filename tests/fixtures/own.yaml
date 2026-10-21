@@ -1,5 +1,6 @@
 SECRET: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
 API_TOKEN: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
+PORT: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:int]
 legacy-env: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
 sops:
     age:

@@ -1,35 +1,52 @@
 { lib, stencil }:
 let
-  placeholderOf = namespace: key: "<${namespace}/${key}>";
-  fill = stencil.fillHoles {
-    namespace = "own";
-    inherit placeholderOf;
-  };
+  placeholderOf = hole: "<${toString hole.namespace}/${hole.key}>";
+  render = stencil.render { inherit placeholderOf; };
 in
 lib.debug.runTests {
-  testOwnHole = {
-    expr = fill "a=\${SECRET}";
-    expected = "a=<own/SECRET>";
+  testBareHole = {
+    expr = render "a=\${SECRET}";
+    expected = "a=</SECRET>";
   };
   testNamespacedHole = {
-    expr = fill "a=\${peer-1.TOKEN}";
+    expr = render "a=\${peer-1.TOKEN}";
     expected = "a=<peer-1/TOKEN>";
   };
   testEscapedHoleIsLiteral = {
-    expr = fill "a=$\${LITERAL} b=$\${peer.LITERAL}";
+    expr = render "a=$\${LITERAL} b=$\${peer.LITERAL}";
     expected = "a=\${LITERAL} b=\${peer.LITERAL}";
   };
   testEscapedAndSecretInOneTemplate = {
-    expr = fill "a=$\${X} b=\${X}";
-    expected = "a=\${X} b=<own/X>";
+    expr = render "a=$\${X} b=\${X}";
+    expected = "a=\${X} b=</X>";
   };
   testTripleDollarKeepsOneDollar = {
-    expr = fill "a=$$\${X}";
+    expr = render "a=$$\${X}";
     expected = "a=$\${X}";
   };
   testNotHoles = {
-    expr = fill "a=$X b=\${lower} c=\${Mixed_Case} d=\${1X} e=\${PEER.X}";
-    expected = "a=$X b=\${lower} c=\${Mixed_Case} d=\${1X} e=\${PEER.X}";
+    expr = render "a=$X b=\${lower} c=\${Mixed_Case} d=\${1X} e=\${PEER.X} f=\${my_app.X}";
+    expected = "a=$X b=\${lower} c=\${Mixed_Case} d=\${1X} e=\${PEER.X} f=\${my_app.X}";
+  };
+  testVars = {
+    expr = stencil.render {
+      inherit placeholderOf;
+      vars = {
+        root = "/srv";
+        port = "80";
+      };
+    } "path=@root@/x port=@port@ keep=@other@";
+    expected = "path=/srv/x port=80 keep=@other@";
+  };
+  testVarsAreLiteral = {
+    expr = stencil.render {
+      inherit placeholderOf;
+      vars = {
+        cmd = "echo \${HOME}";
+        dollar = "$";
+      };
+    } "cmd=@cmd@ s=@dollar@\${KEY}";
+    expected = "cmd=echo \${HOME} s=$</KEY>";
   };
   testHolesOf = {
     expr = stencil.holesOf "a=\${X} b=$\${Y} c=\${peer.Z} d=\${X}";
@@ -44,37 +61,53 @@ lib.debug.runTests {
       }
     ];
   };
-  testHasHoles = {
-    expr = map stencil.hasHoles [
-      "a=@path@"
-      "a=$\${X}"
-      "a=\${X}"
+  testScanSopsFile = {
+    expr = stencil.scanSopsFile ./fixtures/own.yaml;
+    expected = {
+      keys = [
+        "SECRET"
+        "API_TOKEN"
+      ];
+      skipped = [
+        {
+          key = "PORT";
+          reason = "not a string";
+        }
+        {
+          key = "legacy-env";
+          reason = "name outside ${stencil.patterns.key}";
+        }
+      ];
+    };
+  };
+  testIsNamespace = {
+    expr = map stencil.isNamespace [
+      "own"
+      "peer-1"
+      "my_app"
+      "App"
     ];
     expected = [
-      false
-      false
       true
+      true
+      false
+      false
     ];
   };
-  testFillVars = {
-    expr = stencil.fillVars {
-      root = "/srv";
-      port = "80";
-    } "path=@root@/x port=@port@ keep=@other@";
-    expected = "path=/srv/x port=80 keep=@other@";
-  };
-  testSecretKeys = {
-    expr = stencil.secretKeys ./fixtures/own.yaml;
+  testHoleRef = {
+    expr = map stencil.holeRef [
+      {
+        namespace = null;
+        key = "A";
+      }
+      {
+        namespace = "ns";
+        key = "B";
+      }
+    ];
     expected = [
-      "SECRET"
-      "API_TOKEN"
+      "\${A}"
+      "\${ns.B}"
     ];
-  };
-  testEnvLines = {
-    expr = stencil.envLines placeholderOf "own" [
-      "A"
-      "B"
-    ];
-    expected = "A=<own/A>\nB=<own/B>\n";
   };
 }

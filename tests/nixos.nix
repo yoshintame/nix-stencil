@@ -19,6 +19,11 @@ let
           };
           system.stateVersion = "25.05";
           sops.age.keyFile = "/var/lib/sops-nix/key.txt";
+          users.groups.appgrp = { };
+          users.users.app = {
+            isSystemUser = true;
+            group = "appgrp";
+          };
         }
       ]
       ++ modules;
@@ -41,6 +46,7 @@ let
         template = ./fixtures/app.json;
         vars.root = "/srv";
         owner = "app";
+        mode = "0440";
         restartUnits = [ "app.service" ];
       };
       "/etc/app/plain.conf" = {
@@ -52,26 +58,40 @@ let
 
   cfg = eval [ base ];
   ph = name: cfg.sops.placeholder.${name};
+  appTemplate = cfg.sops.templates."stencil-file-app%2Fconfig.json";
   failedMessages = config: map (a: a.message) (lib.filter (a: !a.assertion) config.assertions);
   rejects = fragment: modules: lib.any (lib.hasInfix fragment) (failedMessages (eval modules));
+  warns = fragment: modules: lib.any (lib.hasInfix fragment) (eval modules).warnings;
 in
 lib.debug.runTests {
-  testSecretPerKey = {
-    expr = lib.mapAttrs (_: s: { inherit (s) key sopsFile; }) cfg.sops.secrets;
+  testSecretPerStringKey = {
+    expr = lib.mapAttrs (_: s: { inherit (s) key sopsFile format; }) cfg.sops.secrets;
     expected = {
       "own/SECRET" = {
         key = "SECRET";
         sopsFile = ./fixtures/own.yaml;
+        format = "yaml";
       };
       "own/API_TOKEN" = {
         key = "API_TOKEN";
         sopsFile = ./fixtures/own.yaml;
+        format = "yaml";
       };
       "peer/TOKEN" = {
         key = "TOKEN";
         sopsFile = ./fixtures/peer.yaml;
+        format = "yaml";
       };
     };
+  };
+
+  testFormatIgnoresDefaultSopsFormat = {
+    expr =
+      (eval [
+        base
+        { sops.defaultSopsFormat = "json"; }
+      ]).sops.secrets."own/SECRET".format;
+    expected = "yaml";
   };
 
   testRefs = {
@@ -86,7 +106,7 @@ lib.debug.runTests {
   };
 
   testTemplateFillsVarsAndHoles = {
-    expr = cfg.sops.templates."stencil-app-config.json".content;
+    expr = appTemplate.content;
     expected = ''
       {
         "root": "/srv",
@@ -97,28 +117,34 @@ lib.debug.runTests {
     '';
   };
 
-  testTemplateDelivery = {
+  testTemplateDeliveryKeepsOwnerGroup = {
     expr = {
-      inherit (cfg.sops.templates."stencil-app-config.json") owner mode restartUnits;
+      inherit (appTemplate)
+        owner
+        group
+        mode
+        restartUnits
+        ;
       inherit (cfg.stencil.files."app/config.json") path;
     };
     expected = {
       owner = "app";
-      mode = "0400";
+      group = "appgrp";
+      mode = "0440";
       restartUnits = [ "app.service" ];
-      path = "/run/secrets/rendered/stencil-app-config.json";
+      path = "/run/secrets/rendered/stencil-file-app%2Fconfig.json";
     };
   };
 
   testFileWithoutHolesGoesToStore = {
     expr =
       let
-        p = cfg.stencil.files."/etc/app/plain.conf".path;
+        f = cfg.stencil.files."/etc/app/plain.conf";
       in
       {
-        store = lib.hasPrefix builtins.storeDir p;
-        content = builtins.readFile p;
-        template = cfg.sops.templates ? "stencil-etc-app-plain.conf";
+        store = lib.hasPrefix builtins.storeDir f.path;
+        inherit (f) content;
+        template = cfg.sops.templates ? ${f.name};
       };
     expected = {
       store = true;
@@ -127,18 +153,121 @@ lib.debug.runTests {
     };
   };
 
+  testEscapedHoleInStoreFile = {
+    expr =
+      (eval [
+        base
+        {
+          stencil.files.escaped = {
+            template = ./fixtures/escaped.conf;
+            vars.port = "1";
+          };
+        }
+      ]).stencil.files.escaped.content;
+    expected = "a=\${HOME} port=1\n";
+  };
+
+  testVarsAreNotHoles = {
+    expr =
+      let
+        c = eval [
+          base
+          {
+            stencil.files.vars = {
+              template = ./fixtures/plain.conf;
+              vars.port = "\${HOME}";
+            };
+          }
+        ];
+      in
+      {
+        inherit (c.stencil.files.vars) hasHoles content;
+        failed = failedMessages c;
+      };
+    expected = {
+      hasHoles = false;
+      content = "port=\${HOME}\n";
+      failed = [ ];
+    };
+  };
+
   testEnvFile = {
     expr = {
-      inherit (cfg.sops.templates."stencil-own.env") content restartUnits;
+      inherit (cfg.sops.templates."stencil-env-own") content restartUnits;
       inherit (cfg.stencil.namespaces.own.env) path;
-      peer = cfg.sops.templates ? "stencil-peer.env";
+      peer = cfg.sops.templates ? "stencil-env-peer";
     };
     expected = {
       content = "SECRET=${ph "own/SECRET"}\nAPI_TOKEN=${ph "own/API_TOKEN"}\n";
       restartUnits = [ "app.service" ];
-      path = "/run/secrets/rendered/stencil-own.env";
+      path = "/run/secrets/rendered/stencil-env-own";
       peer = false;
     };
+  };
+
+  testDisabledEnvPathThrows = {
+    expr = (builtins.tryEval cfg.stencil.namespaces.peer.env.path).success;
+    expected = false;
+  };
+
+  testNamesDoNotCollide = {
+    expr =
+      let
+        c = eval [
+          base
+          {
+            stencil.files = {
+              "a/b" = {
+                namespace = "own";
+                template = ./fixtures/bare.conf;
+              };
+              "a-b" = {
+                namespace = "own";
+                template = ./fixtures/bare.conf;
+              };
+              "own.env" = {
+                namespace = "own";
+                template = ./fixtures/bare.conf;
+              };
+            };
+          }
+        ];
+      in
+      {
+        names = map (f: f.name) (lib.attrValues c.stencil.files);
+        env = lib.hasPrefix "SECRET=" c.sops.templates."stencil-env-own".content;
+        failed = failedMessages c;
+      };
+    expected = {
+      names = [
+        "stencil-file-%2Fetc%2Fapp%2Fplain.conf"
+        "stencil-file-a-b"
+        "stencil-file-a%2Fb"
+        "stencil-file-app%2Fconfig.json"
+        "stencil-file-own.env"
+      ];
+      env = true;
+      failed = [ ];
+    };
+  };
+
+  testWarnsSkippedKeys = {
+    expr = warns "skipped keys of" [ base ] && warns "PORT (not a string)" [ base ];
+    expected = true;
+  };
+
+  testWarnsIgnoredDeliveryOfStoreFile = {
+    expr = warns "owner, group and restartUnits are ignored" [
+      base
+      {
+        stencil.files.plain = {
+          template = ./fixtures/plain.conf;
+          vars.port = "1";
+          restartUnits = [ "x.service" ];
+        };
+      }
+    ];
+    expected = true;
   };
 
   testValid = {
@@ -146,7 +275,7 @@ lib.debug.runTests {
     expected = [ ];
   };
 
-  testRejectsMissingKey = {
+  testRejectsUnresolvedHoles = {
     expr =
       map
         (
@@ -162,9 +291,9 @@ lib.debug.runTests {
           ]
         )
         [
-          "\${NOPE} is absent from"
-          "\${peer.MISSING} is absent from"
-          "namespaces ghost are not declared"
+          "\${NOPE} absent from"
+          "\${peer.MISSING} absent from"
+          "\${ghost.X} namespace ghost is not declared"
         ];
     expected = [
       true
@@ -174,7 +303,7 @@ lib.debug.runTests {
   };
 
   testRejectsBareHoleWithoutNamespace = {
-    expr = rejects "have no namespace" [
+    expr = rejects "\${SECRET} no namespace" [
       base
       { stencil.files.bare.template = ./fixtures/bare.conf; }
     ];
@@ -201,6 +330,28 @@ lib.debug.runTests {
     expr = rejects "has no top-level KEY: ENC" [
       base
       { stencil.namespaces.empty.sopsFile = ./fixtures/plain.conf; }
+    ];
+    expected = true;
+  };
+
+  testRejectsInvalidNamespaceName = {
+    expr = rejects "a namespace name must match" [
+      base
+      { stencil.namespaces.my_app.sopsFile = ./fixtures/peer.yaml; }
+    ];
+    expected = true;
+  };
+
+  testRejectsDuplicateNames = {
+    expr = rejects "are used more than once" [
+      base
+      {
+        stencil.files.dup = {
+          namespace = "own";
+          template = ./fixtures/bare.conf;
+          name = "stencil-env-own";
+        };
+      }
     ];
     expected = true;
   };
