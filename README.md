@@ -32,6 +32,8 @@ Key names in a sops file are plaintext, so nix-stencil reads them at evaluation.
 
 A namespace name matches `[a-z0-9-]+`, the namespace part of a `${ns.KEY}` hole.
 
+A file may declare its namespace itself: `sopsFile = ./secrets.yaml` registers the sops file as the namespace `namespace`, which defaults to the name of the directory of the sops file (`modules/rclone/secrets.yaml` is `rclone`). Files and `stencil.namespaces` naming one namespace with one sops file share it; two sops files under one namespace name fail evaluation, and the fix is an explicit `namespace`. Since `stencil.namespaces` is built from `stencil.files`, a `stencil.files` computed from `stencil.namespaces` is an infinite recursion.
+
 ## Usage
 
 ```nix
@@ -70,29 +72,64 @@ A namespace name matches `[a-z0-9-]+`, the namespace part of a `${ns.KEY}` hole.
 }
 ```
 
+### home-manager
+
+```nix
+{
+  # in a home-manager configuration, next to sops-nix.homeManagerModules.sops
+  imports = [ inputs.nix-stencil.homeManagerModules.default ];
+}
+```
+
+```nix
+{ config, lib, ... }:
+{
+  stencil.files."~/.config/resticprofile/profiles.yaml" = {
+    sopsFile = ./secrets.yaml;
+    template = ./config/profiles.yaml;
+    vars.endpoint = "http://monitor:8080";
+  };
+
+  stencil.namespaces.rclone.sopsFile = ./rclone.yaml;
+
+  programs.rclone.remotes.gdrive.secrets = lib.mkIf config.stencil.enable {
+    token = config.stencil.refs.rclone.RCLONE_GDRIVE_TOKEN;
+  };
+}
+```
+
+The id of a file is its `target`, where the file is placed: `~/` and relative paths start at the home directory, and a target outside the home directory fails evaluation. A rendered file is a symlink sops-nix keeps at the target and replaces whatever was there; a store file is linked by `home.file` with `force`, so a file that loses its last secret hole takes over the symlink sops-nix left. Two files with one target, or a rendered file at a `home.file` target, fail evaluation. `target = null` keeps a rendered file in the sops-nix rendered directory and does not place a store file anywhere.
+
+`stencil.enable = false` declares no secrets and no templates, for example on the first switch of a machine without its age key; `path` and `refs` throw then, and the checks still run. The policy stays with the host. A check of the key file reads the disk of the evaluating machine and needs `--impure`: in pure evaluation `builtins.pathExists` of a path outside the store is always false.
+
+```nix
+stencil.enable = builtins.pathExists config.sops.age.keyFile;
+```
+
 ## Options
 
 | Option | Meaning |
 |---|---|
+| `stencil.enable` | declare the secrets and templates in sops-nix (default `true`) |
 | `stencil.namespaces.<ns>.sopsFile` | sops YAML file of the namespace |
 | `stencil.namespaces.<ns>.keys` | keys found in the file (read-only) |
 | `stencil.namespaces.<ns>.env.{enable,name,mode,owner,group,restartUnits}` | env file with every key of the namespace |
 | `stencil.namespaces.<ns>.env.path` | path of the env file (read-only) |
-| `stencil.files.<id>.{namespace,template,vars,name,mode,owner,group,restartUnits}` | file rendered from a template |
+| `stencil.files.<id>.{namespace,sopsFile,template,vars,name,mode,owner,group,restartUnits,target}` | file rendered from a template |
 | `stencil.files.<id>.path` | rendered file (read-only): a sops-nix template with secret holes, a store path without |
 | `stencil.refs.<ns>.<KEY>` | path of a single secret (read-only) |
 
-`owner`, `group` and `restartUnits` exist in the NixOS module; a `null` group keeps the sops-nix default, the group of the owner. A rendered file follows sops-nix: it is rewritten at activation and on secret rotation. A consumer that needs a writable copy, for example an application that rewrites its config on exit, copies `path` before start.
+`target` exists in the home-manager module, on files (default: the id) and on env files (default: `null`). `owner`, `group` and `restartUnits` exist in the NixOS module; a `null` group keeps the sops-nix default, the group of the owner. A rendered file follows sops-nix: it is rewritten at activation and on secret rotation. A consumer that needs a writable copy, for example an application that rewrites its config on exit, copies `path` before start.
 
 A file without secret holes is a store file: `mode`, `owner`, `group` and `restartUnits` do not apply to it, and setting them gives a warning.
 
-`name` is the file name under the sops-nix rendered directory, `/run/secrets/rendered/<name>` on NixOS. It defaults to `stencil-env-<ns>` for env files and to `stencil-file-<id>` for files, with `%` and `/` of the id percent-encoded, so `app/config.json` becomes `stencil-file-app%2Fconfig.json`. Two rendered files with one name fail evaluation.
+`name` is the file name under the sops-nix rendered directory, `/run/secrets/rendered/<name>` on NixOS and `~/.config/sops-nix/secrets/rendered/<name>` in home-manager. It defaults to `stencil-env-<ns>` for env files and to `stencil-file-<id>` for files, with `%` and `/` of the id percent-encoded, so `app/config.json` becomes `stencil-file-app%2Fconfig.json`. Two rendered files with one name fail evaluation.
 
 `lib` exposes the pure parts: `render`, `holesOf`, `holeRef`, `scanSopsFile`, `secretName`, `isNamespace` and `patterns`.
 
 ## Development
 
 ```sh
-just check   # nix flake check: formatting, lib unit tests, NixOS module eval tests
+just check   # nix flake check: formatting, lib unit tests, NixOS and home-manager module eval tests
 just fmt
 ```

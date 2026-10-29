@@ -59,9 +59,7 @@ let
   cfg = eval [ base ];
   ph = name: cfg.sops.placeholder.${name};
   appTemplate = cfg.sops.templates."stencil-file-app%2Fconfig.json";
-  failedMessages = config: map (a: a.message) (lib.filter (a: !a.assertion) config.assertions);
-  rejects = fragment: modules: lib.any (lib.hasInfix fragment) (failedMessages (eval modules));
-  warns = fragment: modules: lib.any (lib.hasInfix fragment) (eval modules).warnings;
+  inherit (import ./support.nix { inherit lib; } eval) failedMessages rejects warns;
 in
 lib.debug.runTests {
   testSecretPerStringKey = {
@@ -338,6 +336,131 @@ lib.debug.runTests {
     expr = rejects "a namespace name must match" [
       base
       { stencil.namespaces.my_app.sopsFile = ./fixtures/peer.yaml; }
+    ];
+    expected = true;
+  };
+
+  testSopsFileNamespacedByDirectory =
+    let
+      c = eval [
+        base
+        {
+          stencil.files = {
+            short-a = {
+              sopsFile = ./fixtures/own.yaml;
+              template = ./fixtures/bare.conf;
+            };
+            short-b = {
+              sopsFile = ./fixtures/own.yaml;
+              template = ./fixtures/bare.conf;
+            };
+          };
+        }
+      ];
+    in
+    {
+      expr = {
+        inherit (c.stencil.files.short-a) namespace;
+        secrets = lib.filter (lib.hasPrefix "fixtures/") (lib.attrNames c.sops.secrets);
+        content = c.sops.templates."stencil-file-short-a".content;
+        failed = failedMessages c;
+      };
+      expected = {
+        namespace = "fixtures";
+        secrets = [
+          "fixtures/API_TOKEN"
+          "fixtures/SECRET"
+        ];
+        content = "v=${c.sops.placeholder."fixtures/SECRET"}\n";
+        failed = [ ];
+      };
+    };
+
+  testSopsFileJoinsDeclaredNamespace =
+    let
+      c = eval [
+        base
+        {
+          stencil.files.joined = {
+            namespace = "own";
+            sopsFile = ./fixtures/own.yaml;
+            template = ./fixtures/bare.conf;
+          };
+        }
+      ];
+    in
+    {
+      expr = {
+        namespaces = lib.attrNames c.stencil.namespaces;
+        secrets = lib.attrNames c.sops.secrets;
+        failed = failedMessages c;
+      };
+      expected = {
+        namespaces = lib.attrNames cfg.stencil.namespaces;
+        secrets = lib.attrNames cfg.sops.secrets;
+        failed = [ ];
+      };
+    };
+
+  testSopsFilesOfOneDirectoryConflict = {
+    expr =
+      (builtins.tryEval
+        (eval [
+          base
+          {
+            stencil.files = {
+              a = {
+                sopsFile = ./fixtures/own.yaml;
+                template = ./fixtures/bare.conf;
+              };
+              b = {
+                sopsFile = ./fixtures/peer.yaml;
+                template = ./fixtures/bare.conf;
+              };
+            };
+          }
+        ]).stencil.namespaces.fixtures.sopsFile
+      ).success;
+    expected = false;
+  };
+
+  testDisabledDeclaresNothing =
+    let
+      c = eval [
+        base
+        { stencil.enable = false; }
+      ];
+    in
+    {
+      expr = {
+        inherit (c.sops) secrets templates;
+        ref = (builtins.tryEval c.stencil.refs.own.SECRET).success;
+        refKeys = c.stencil.refs.own ? SECRET;
+        file = (builtins.tryEval c.stencil.files."app/config.json".path).success;
+        env = (builtins.tryEval c.stencil.namespaces.own.env.path).success;
+        failed = failedMessages c;
+      };
+      expected = {
+        secrets = { };
+        templates = { };
+        ref = false;
+        refKeys = true;
+        file = false;
+        env = false;
+        failed = [ ];
+      };
+    };
+
+  testDisabledStillChecks = {
+    expr = rejects "\${NOPE} absent from" [
+      base
+      {
+        stencil.enable = false;
+        stencil.files.broken = {
+          namespace = "own";
+          template = ./fixtures/broken.conf;
+        };
+      }
     ];
     expected = true;
   };
