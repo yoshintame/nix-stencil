@@ -27,5 +27,11 @@ in
           nixosModule = ../modules/nixos.nix;
         }
       );
+      checks.home-manager = suite pkgs "home-manager" (
+        import ../tests/home-manager.nix {
+          inherit lib inputs;
+          homeManagerModule = ../modules/home-manager.nix;
+        }
+      );
     };
 }

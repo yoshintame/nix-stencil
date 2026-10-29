@@ -6,7 +6,7 @@
 }:
 let
   inherit (lib) mkOption types;
-  inherit (context) renderedOptions placeholderOf;
+  inherit (context) renderedOptions placeholderOf templatePath;
   cfg = top.stencil;
 
   envModule =
@@ -28,7 +28,7 @@ let
           readOnly = true;
           default =
             if config.enable then
-              top.sops.templates.${config.name}.path
+              templatePath "stencil.namespaces.${namespace}.env.path" config.name
             else
               throw "stencil.namespaces.${namespace}.env.path: env.enable is false";
           defaultText = lib.literalExpression "config.sops.templates.<name>.path";

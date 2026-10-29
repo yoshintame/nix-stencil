@@ -13,7 +13,7 @@ let
       namespace = if hole.namespace == null then defaultNamespace else hole.namespace;
     in
     if namespace == null then
-      { status = "no namespace; set the namespace of the file"; }
+      { status = "no namespace; set the namespace or the sopsFile of the file"; }
     else if !(cfg.namespaces ? ${namespace}) then
       { status = "namespace ${namespace} is not declared in stencil.namespaces"; }
     else if !lib.elem hole.key cfg.namespaces.${namespace}.keys then
@@ -37,6 +37,12 @@ let
       config.sops.placeholder.${r.secret}
     else
       "<stencil:unresolved:${stencil.holeRef hole}>";
+
+  whenEnabled = what: value: if cfg.enable then value else throw "${what}: stencil.enable is false";
+
+  secretPath = what: name: whenEnabled what config.sops.secrets.${name}.path;
+
+  templatePath = what: name: whenEnabled what config.sops.templates.${name}.path;
 
   renderedOptions = defaultName: {
     name = mkOption {
@@ -63,6 +69,8 @@ in
   inherit
     resolve
     placeholderOf
+    secretPath
+    templatePath
     renderedOptions
     rendered
     ;

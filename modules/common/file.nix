@@ -3,13 +3,18 @@
   pkgs,
   stencil,
   context,
-  top,
 }:
 let
   inherit (lib) mkOption types;
-  inherit (context) renderedOptions placeholderOf;
+  inherit (context) renderedOptions placeholderOf templatePath;
 
   encode = builtins.replaceStrings [ "%" "/" ] [ "%25" "%2F" ];
+
+  directoryNamespace =
+    file:
+    lib.concatMapStrings (c: if builtins.match stencil.patterns.namespace c != null then c else "-") (
+      lib.stringToCharacters (lib.toLower (baseNameOf (dirOf (toString file))))
+    );
 
   fileModule =
     { name, config, ... }:
@@ -18,7 +23,12 @@ let
         namespace = mkOption {
           type = types.nullOr (types.strMatching stencil.patterns.namespace);
           default = null;
-          description = "Namespace of the bare \${KEY} holes";
+          description = "Namespace of the bare \${KEY} holes; with sopsFile, defaults to the directory of sopsFile";
+        };
+        sopsFile = mkOption {
+          type = types.nullOr types.path;
+          default = null;
+          description = "sops file that the file declares as its namespace";
         };
         template = mkOption {
           type = types.path;
@@ -55,15 +65,18 @@ let
           readOnly = true;
           default =
             if config.hasHoles then
-              top.sops.templates.${config.name}.path
+              templatePath "stencil.files.\"${name}\".path" config.name
             else
               "${pkgs.writeText (baseNameOf name) config.content}";
           defaultText = lib.literalExpression "a sops-nix template with secret holes, a store file without";
           description = "Rendered file: a sops-nix template with secret holes, a store file without";
         };
       };
-      config.sopsTemplate = {
-        inherit (config) content mode;
+      config = {
+        namespace = lib.mkIf (config.sopsFile != null) (lib.mkDefault (directoryNamespace config.sopsFile));
+        sopsTemplate = {
+          inherit (config) content mode;
+        };
       };
     };
 in

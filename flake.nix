@@ -10,6 +10,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -44,6 +49,7 @@
       flake = {
         lib = import ./lib { inherit (inputs.nixpkgs) lib; };
         nixosModules.default = ./modules/nixos.nix;
+        homeManagerModules.default = ./modules/home-manager.nix;
       };
     };
 }
