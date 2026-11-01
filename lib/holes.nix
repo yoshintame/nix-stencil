@@ -1,25 +1,37 @@
 { lib }:
 let
-  keyPattern = "[A-Z_][A-Z0-9_]*";
   namespacePattern = "[a-z0-9-]+";
-  holePattern = "(\\$?)\\$\\{((${namespacePattern})\\.)?(${keyPattern})}";
+  holePattern = "(~?)~\\{\\{([^{}\n]+)}}";
+
+  parseRef =
+    ref:
+    let
+      m = builtins.match "([^/]+)/(.+)" ref;
+    in
+    if m == null then
+      {
+        namespace = null;
+        key = ref;
+      }
+    else
+      {
+        namespace = lib.elemAt m 0;
+        key = lib.elemAt m 1;
+      };
 
   parse =
     text:
     map (
       part:
       if lib.isList part then
-        {
-          escaped = lib.elemAt part 0 == "$";
-          namespace = lib.elemAt part 2;
-          key = lib.elemAt part 3;
-        }
+        { escaped = lib.elemAt part 0 == "~"; } // parseRef (lib.elemAt part 1)
       else
         part
     ) (builtins.split holePattern text);
 
-  holeRef =
-    hole: "\${${lib.optionalString (hole.namespace != null) "${hole.namespace}."}${hole.key}}";
+  formatRef = hole: "${lib.optionalString (hole.namespace != null) "${hole.namespace}/"}${hole.key}";
+
+  holeRef = hole: "~{{${formatRef hole}}}";
 
   fillVars =
     vars: text:
@@ -27,11 +39,11 @@ let
 
 in
 {
-  inherit holeRef;
+  inherit holeRef parseRef formatRef;
 
   patterns = {
-    key = keyPattern;
     namespace = namespacePattern;
+    envKey = "[A-Za-z_][A-Za-z0-9_]*";
   };
 
   isNamespace = namespace: builtins.match namespacePattern namespace != null;

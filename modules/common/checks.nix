@@ -43,7 +43,7 @@ in
     }) cfg.namespaces
     ++ lib.mapAttrsToList (namespace: n: {
       assertion = n.keys != [ ];
-      message = "stencil.namespaces.${namespace}: ${toString n.sopsFile} has no top-level KEY: ENC[...] string entries";
+      message = "stencil.namespaces.${namespace}: ${toString n.sopsFile} has no top-level key: ENC[...] string entries";
     }) cfg.namespaces
     ++ lib.concatLists (lib.mapAttrsToList fileAssertions cfg.files);
 
@@ -55,6 +55,9 @@ in
             "stencil.namespaces.${namespace}: skipped keys of ${toString n.sopsFile}: ${
               lib.concatMapStringsSep ", " (s: "${s.key} (${s.reason})") n.skippedKeys
             }"
+          ++
+            lib.optional (n.env.enable && n.env.excludedKeys != [ ])
+              "stencil.namespaces.${namespace}.env: keys ${lib.concatStringsSep ", " n.env.excludedKeys} are not variable names and stay out of the env file"
         ) cfg.namespaces
       )
       ++ lib.concatLists (
