@@ -1,6 +1,7 @@
 {
   "root": "@root@",
-  "secret": "${SECRET}",
-  "token": "${peer.TOKEN}",
-  "literal": "$${KEEP}"
+  "secret": "~{{SECRET}}",
+  "token": "~{{peer/TOKEN}}",
+  "legacy": "~{{legacy-env}}",
+  "literal": "~~{{KEEP}}"
 }

@@ -35,7 +35,7 @@ in
     namespaces = mkOption {
       type = types.attrsOf (types.submodule namespaceModule);
       default = { };
-      description = "sops files whose keys become secrets named <namespace>/<KEY>";
+      description = "sops files whose keys become secrets named <namespace>/<key>";
     };
     files = mkOption {
       type = types.attrsOf (types.submodule fileModule);
@@ -51,8 +51,8 @@ in
           key: secretPath "stencil.refs.${namespace}.${key}" (stencil.secretName namespace key)
         )
       ) cfg.namespaces;
-      defaultText = lib.literalExpression "refs.<namespace>.<KEY> = path of the secret";
-      description = "Path of every secret: refs.<namespace>.<KEY>";
+      defaultText = lib.literalExpression "refs.<namespace>.<key> = path of the secret";
+      description = "Path of every secret: refs.<namespace>.<key>";
     };
   };
 

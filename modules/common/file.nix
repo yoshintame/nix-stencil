@@ -23,7 +23,7 @@ let
         namespace = mkOption {
           type = types.nullOr (types.strMatching stencil.patterns.namespace);
           default = null;
-          description = "Namespace of the bare \${KEY} holes; with sopsFile, defaults to the directory of sopsFile";
+          description = "Namespace of the bare ~{{key}} holes; with sopsFile, defaults to the directory of sopsFile";
         };
         sopsFile = mkOption {
           type = types.nullOr types.path;
@@ -32,7 +32,7 @@ let
         };
         template = mkOption {
           type = types.path;
-          description = "Native config file with \${KEY}, \${namespace.KEY}, $\${LITERAL} and @var@ holes";
+          description = "Native config file with ~{{key}}, ~{{namespace/key}}, ~~{{literal}} and @var@ holes";
         };
         vars = mkOption {
           type = types.attrsOf types.str;

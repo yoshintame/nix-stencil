@@ -2,6 +2,8 @@ SECRET: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
 API_TOKEN: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
 PORT: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:int]
 legacy-env: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
+nested/key: ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
+"123": ENC[AES256_GCM,data:AAAA,iv:AAAA,tag:AAAA,type:str]
 sops:
     age:
         - recipient: age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq

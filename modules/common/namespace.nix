@@ -9,19 +9,30 @@ let
   inherit (context) renderedOptions placeholderOf templatePath;
   cfg = top.stencil;
 
+  isEnvKey = key: builtins.match stencil.patterns.envKey key != null;
+
   envModule =
     namespace:
     { config, ... }:
+    let
+      envKeys = lib.partition isEnvKey cfg.namespaces.${namespace}.keys;
+    in
     {
       options = renderedOptions "stencil-env-${namespace}" // {
-        enable = lib.mkEnableOption "an env file with every key of the namespace";
+        enable = lib.mkEnableOption "an env file with every key of the namespace that is a variable name";
         content = mkOption {
           type = types.str;
           readOnly = true;
           internal = true;
-          default = stencil.render {
-            placeholderOf = placeholderOf namespace;
-          } (lib.concatMapStrings (key: "${key}=\${${key}}\n") cfg.namespaces.${namespace}.keys);
+          default = lib.concatMapStrings (
+            key: "${key}=${placeholderOf namespace { inherit namespace key; }}\n"
+          ) envKeys.right;
+        };
+        excludedKeys = mkOption {
+          type = types.listOf types.str;
+          readOnly = true;
+          internal = true;
+          default = envKeys.wrong;
         };
         path = mkOption {
           type = types.str;
@@ -48,7 +59,7 @@ let
       options = {
         sopsFile = mkOption {
           type = types.path;
-          description = "sops-encrypted YAML file with flat KEY: ENC[...] string entries";
+          description = "sops-encrypted YAML file with flat key: ENC[...] string entries";
         };
         keys = mkOption {
           type = types.listOf types.str;

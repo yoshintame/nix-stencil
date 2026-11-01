@@ -1,4 +1,4 @@
-{ lib, patterns }:
+{ lib }:
 let
   topLevelEntry = builtins.match "([^[:space:]#:][^:]*):[[:space:]]+(.*)";
 in
@@ -18,8 +18,10 @@ in
       ) (lib.splitString "\n" (builtins.readFile file));
       reasonOf =
         e:
-        if builtins.match patterns.key e.key == null then
-          "name outside ${patterns.key}"
+        if lib.hasPrefix "\"" e.key || lib.hasPrefix "'" e.key then
+          "quoted key"
+        else if lib.hasInfix "/" e.key then
+          "sops-nix reads / in a key as nesting"
         else if !lib.hasInfix ",type:str]" e.value then
           "not a string"
         else

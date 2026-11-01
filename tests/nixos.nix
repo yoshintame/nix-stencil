@@ -75,6 +75,11 @@ lib.debug.runTests {
         sopsFile = ./fixtures/own.yaml;
         format = "yaml";
       };
+      "own/legacy-env" = {
+        key = "legacy-env";
+        sopsFile = ./fixtures/own.yaml;
+        format = "yaml";
+      };
       "peer/TOKEN" = {
         key = "TOKEN";
         sopsFile = ./fixtures/peer.yaml;
@@ -98,6 +103,7 @@ lib.debug.runTests {
       own = {
         SECRET = "/run/secrets/own/SECRET";
         API_TOKEN = "/run/secrets/own/API_TOKEN";
+        legacy-env = "/run/secrets/own/legacy-env";
       };
       peer.TOKEN = "/run/secrets/peer/TOKEN";
     };
@@ -110,7 +116,8 @@ lib.debug.runTests {
         "root": "/srv",
         "secret": "${ph "own/SECRET"}",
         "token": "${ph "peer/TOKEN"}",
-        "literal": "''${KEEP}"
+        "legacy": "${ph "own/legacy-env"}",
+        "literal": "~{{KEEP}}"
       }
     '';
   };
@@ -162,7 +169,7 @@ lib.debug.runTests {
           };
         }
       ]).stencil.files.escaped.content;
-    expected = "a=\${HOME} port=1\n";
+    expected = "a=~{{HOME}} port=1\n";
   };
 
   testVarsAreNotHoles = {
@@ -173,7 +180,7 @@ lib.debug.runTests {
           {
             stencil.files.vars = {
               template = ./fixtures/plain.conf;
-              vars.port = "\${HOME}";
+              vars.port = "~{{HOME}}";
             };
           }
         ];
@@ -184,7 +191,7 @@ lib.debug.runTests {
       };
     expected = {
       hasHoles = false;
-      content = "port=\${HOME}\n";
+      content = "port=~{{HOME}}\n";
       failed = [ ];
     };
   };
@@ -200,6 +207,20 @@ lib.debug.runTests {
       restartUnits = [ "app.service" ];
       path = "/run/secrets/rendered/stencil-env-own";
       peer = false;
+    };
+  };
+
+  testWarnsEnvKeysThatAreNotVariableNames = {
+    expr = {
+      enabled = warns "own.env: keys legacy-env are not variable names" [ base ];
+      disabled = warns "are not variable names" [
+        base
+        { stencil.namespaces.own.env.enable = lib.mkForce false; }
+      ];
+    };
+    expected = {
+      enabled = true;
+      disabled = false;
     };
   };
 
@@ -250,7 +271,12 @@ lib.debug.runTests {
   };
 
   testWarnsSkippedKeys = {
-    expr = warns "skipped keys of" [ base ] && warns "PORT (not a string)" [ base ];
+    expr = lib.all (f: warns f [ base ]) [
+      "skipped keys of"
+      "PORT (not a string)"
+      "nested/key (sops-nix reads / in a key as nesting)"
+      "\"123\" (quoted key)"
+    ];
     expected = true;
   };
 
@@ -289,9 +315,9 @@ lib.debug.runTests {
           ]
         )
         [
-          "\${NOPE} absent from"
-          "\${peer.MISSING} absent from"
-          "\${ghost.X} namespace ghost is not declared"
+          "~{{NOPE}} absent from"
+          "~{{peer/MISSING}} absent from"
+          "~{{ghost/X}} namespace ghost is not declared"
         ];
     expected = [
       true
@@ -301,7 +327,7 @@ lib.debug.runTests {
   };
 
   testRejectsBareHoleWithoutNamespace = {
-    expr = rejects "\${SECRET} no namespace" [
+    expr = rejects "~{{SECRET}} no namespace" [
       base
       { stencil.files.bare.template = ./fixtures/bare.conf; }
     ];
@@ -325,7 +351,7 @@ lib.debug.runTests {
   };
 
   testRejectsNamespaceWithoutKeys = {
-    expr = rejects "has no top-level KEY: ENC" [
+    expr = rejects "has no top-level key: ENC" [
       base
       { stencil.namespaces.empty.sopsFile = ./fixtures/plain.conf; }
     ];
@@ -370,6 +396,7 @@ lib.debug.runTests {
         secrets = [
           "fixtures/API_TOKEN"
           "fixtures/SECRET"
+          "fixtures/legacy-env"
         ];
         content = "v=${c.sops.placeholder."fixtures/SECRET"}\n";
         failed = [ ];
@@ -452,7 +479,7 @@ lib.debug.runTests {
     };
 
   testDisabledStillChecks = {
-    expr = rejects "\${NOPE} absent from" [
+    expr = rejects "~{{NOPE}} absent from" [
       base
       {
         stencil.enable = false;
